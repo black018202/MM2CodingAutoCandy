@@ -1,0 +1,452 @@
+-- Carrega a Biblioteca Fluent UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+-- Configurações Globais
+local AutoCandyRunning = false
+local AntiFlingEnabled = false
+local AutoFlingAfterEnabled = false
+local TweenSpeed = 21
+
+local EspMurderEnabled = false
+local EspSheriffEnabled = false
+local EspInnocentEnabled = false
+
+-- Serviços do Roblox
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Janela Principal (Dracosw Hub)
+local Window = Fluent:CreateWindow({
+    Title = "Auto Candy",
+    SubTitle = "Dracosw - MM2 Halloween",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 420),
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.RightControl
+})
+
+-- Criação das Abas
+local Tabs = {
+    Main = Window:AddTab({ Title = "Farm Halloween" }),
+    Visuals = Window:AddTab({ Title = "Visuais" })
+}
+
+-- ==========================================
+-- ABA: FARM HALLOWEEN
+-- ==========================================
+
+-- 1. Auto Candy
+local ToggleCandy = Tabs.Main:AddToggle("AutoCandyToggle", {
+    Title = "Auto Candy",
+    Default = false
+})
+
+-- 2. Anti Fling
+local ToggleFling = Tabs.Main:AddToggle("AntiFlingToggle", {
+    Title = "Anti Fling",
+    Default = false
+})
+
+-- 3. Auto Fling (Após Candy / Morte)
+local ToggleAutoFlingAfter = Tabs.Main:AddToggle("AutoFlingAfterToggle", {
+    Title = "Auto Fling (Apos Candy / Morte)",
+    Description = "Da fling no Murderer por 10s ao morrer ou quando o auto candy acabar",
+    Default = false
+})
+
+ToggleFling:OnChanged(function(Value)
+    AntiFlingEnabled = Value
+end)
+
+ToggleAutoFlingAfter:OnChanged(function(Value)
+    AutoFlingAfterEnabled = Value
+end)
+
+-- Função para achar o Murderer
+local function GetMurdererPlayer()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local character = player.Character
+            if (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife")) or (character and character:FindFirstChild("Knife")) then
+                return player
+            end
+        end
+    end
+    return nil
+end
+
+-- Função de Fling por 10 Segundos com Predição de Movimento
+local isFlinging = false
+local function TriggerAutoFling()
+    if isFlinging or not AutoFlingAfterEnabled then return end
+    isFlinging = true
+
+    task.spawn(function()
+        local startTime = tick()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if tick() - startTime >= 10 then -- Duração de 10 segundos
+                if connection then connection:Disconnect() end
+                isFlinging = false
+                return
+            end
+
+            local murder = GetMurdererPlayer()
+            if murder and murder.Character and murder.Character:FindFirstChild("HumanoidRootPart") then
+                local character = LocalPlayer.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local rootPart = character.HumanoidRootPart
+                    local targetRoot = murder.Character.HumanoidRootPart
+                    
+                    -- Calcula posição futura se o Murderer estiver se movendo
+                    local velocity = targetRoot.AssemblyLinearVelocity
+                    local targetCFrame = targetRoot.CFrame
+
+                    if velocity.Magnitude > 0.1 then
+                        targetCFrame = targetCFrame + (velocity * 0.15)
+                    end
+
+                    -- Posiciona e aplica rotação/velocidade extrema para o Fling
+                    rootPart.CFrame = targetCFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
+                    rootPart.AssemblyLinearVelocity = Vector3.new(40000, 40000, 40000)
+                    rootPart.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+                end
+            end
+        end)
+    end)
+end
+
+-- Monitoramento de Morte do Jogador
+LocalPlayer.CharacterAdded:Connect(function(character)
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.Died:Connect(function()
+            if AutoCandyRunning or AutoFlingAfterEnabled then
+                TriggerAutoFling()
+            end
+        end)
+    end
+end)
+
+if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+    LocalPlayer.Character.Humanoid.Died:Connect(function()
+        if AutoCandyRunning or AutoFlingAfterEnabled then
+            TriggerAutoFling()
+        end
+    end)
+end
+
+ToggleCandy:OnChanged(function(Value)
+    AutoCandyRunning = Value
+    if Value then
+        AntiFlingEnabled = true
+    else
+        AntiFlingEnabled = ToggleFling.Value
+    end
+end)
+
+-- Slider: Velocidade do Tween
+local Slider = Tabs.Main:AddSlider("SpeedSlider", {
+    Title = "Velocidade do Tween",
+    Description = "Recomendado: 20-31",
+    Default = 21,
+    Min = 5,
+    Max = 50,
+    Rounding = 0,
+    Callback = function(Value)
+        TweenSpeed = Value
+    end
+})
+
+-- ==========================================
+-- ABA: VISUAIS (ESP)
+-- ==========================================
+
+Tabs.Visuals:AddToggle("EspMurderToggle", {
+    Title = "Esp Murder",
+    Default = false,
+    Callback = function(Value)
+        EspMurderEnabled = Value
+    end
+})
+
+Tabs.Visuals:AddToggle("EspSheriffToggle", {
+    Title = "Esp Sheriff",
+    Default = false,
+    Callback = function(Value)
+        EspSheriffEnabled = Value
+    end
+})
+
+Tabs.Visuals:AddToggle("EspInnocentToggle", {
+    Title = "Esp Innocents",
+    Default = false,
+    Callback = function(Value)
+        EspInnocentEnabled = Value
+    end
+})
+
+-- ==========================================
+-- SISTEMA ESP NATIVO
+-- ==========================================
+local function GetPlayerRole(player)
+    local character = player.Character
+    if not character then return "Innocent" end
+    
+    if player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife") then return "Murderer" end
+    if character:FindFirstChild("Knife") then return "Murderer" end
+    
+    if player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Gun") then return "Sheriff" end
+    if character:FindFirstChild("Gun") then return "Sheriff" end
+    
+    return "Innocent"
+end
+
+local function ApplyHighlight(player, role)
+    if not player.Character then return end
+    
+    local highlight = player.Character:FindFirstChild("DracoswESP")
+    local shouldShow = false
+    local color = Color3.fromRGB(255, 255, 255)
+
+    if role == "Murderer" and EspMurderEnabled then
+        shouldShow = true
+        color = Color3.fromRGB(255, 0, 0)
+    elseif role == "Sheriff" and EspSheriffEnabled then
+        shouldShow = true
+        color = Color3.fromRGB(0, 100, 255)
+    elseif role == "Innocent" and EspInnocentEnabled then
+        shouldShow = true
+        color = Color3.fromRGB(0, 255, 0)
+    end
+
+    if shouldShow then
+        if not highlight then
+            highlight = Instance.new("Highlight")
+            highlight.Name = "DracoswESP"
+            highlight.Parent = player.Character
+        end
+        highlight.FillColor = color
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineTransparency = 0
+        highlight.Enabled = true
+    else
+        if highlight then
+            highlight.Enabled = false
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                pcall(function()
+                    local role = GetPlayerRole(player)
+                    ApplyHighlight(player, role)
+                end)
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- ==========================================
+-- SISTEMA ANTI FLING E NOCLIP
+-- ==========================================
+local lastFlingCheck = 0
+RunService.Heartbeat:Connect(function()
+    if not AntiFlingEnabled and not AutoCandyRunning then return end
+    local now = tick()
+    
+    if now - lastFlingCheck >= 0.2 then
+        lastFlingCheck = now
+        
+        if AntiFlingEnabled then
+            for _, otherPlayer in pairs(Players:GetPlayers()) do
+                if otherPlayer ~= LocalPlayer and otherPlayer.Character then
+                    for _, part in pairs(otherPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end
+        end
+
+        if AutoCandyRunning and LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+local function IsRealCandy(part)
+    if not part or not part.Parent or not part:IsDescendantOf(workspace) then 
+        return false 
+    end
+    if part:IsA("BasePart") then
+        if part.Transparency >= 1 or not part.CanTouch then
+            return false
+        end
+    end
+    return true
+end
+
+-- Teleporte Tween - Vai até encostar perfeitamente no doce
+local function TeleportToCandy(targetPart)
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+    local rootPart = character.HumanoidRootPart
+    if not IsRealCandy(targetPart) then return end
+
+    local distance = (rootPart.Position - targetPart.Position).Magnitude
+    local timeToTravel = distance / TweenSpeed
+
+    local centerPosition = CFrame.new(targetPart.Position)
+    local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = centerPosition})
+    
+    tween:Play()
+
+    -- Espera encostar bem perto (0.2 studs) ou até o doce sumir do mapa
+    while AutoCandyRunning and IsRealCandy(targetPart) do
+        local currentDist = (rootPart.Position - targetPart.Position).Magnitude
+        if currentDist <= 0.2 then
+            break
+        end
+        task.wait()
+    end
+
+    tween:Cancel()
+end
+
+local function GetClosestCandies()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return {} end
+    
+    local rootPart = character.HumanoidRootPart
+    local candyList = {}
+
+    local container = workspace:FindFirstChild("Normal") or workspace
+    for _, obj in pairs(container:GetDescendants()) do
+        local nameLower = obj.Name:lower()
+        if nameLower:find("candy") or nameLower:find("coin") then
+            local targetPart = nil
+            if obj:IsA("BasePart") then
+                targetPart = obj
+            elseif obj:IsA("Model") then
+                targetPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+            end
+
+            if IsRealCandy(targetPart) then
+                local dist = (rootPart.Position - targetPart.Position).Magnitude
+                table.insert(candyList, {Part = targetPart, Distance = dist})
+            end
+        end
+    end
+
+    table.sort(candyList, function(a, b)
+        return a.Distance < b.Distance
+    end)
+
+    return candyList
+end
+
+local function CheckBagFullOrEmpty()
+    pcall(function()
+        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+        if leaderstats then
+            local candiesStat = leaderstats:FindFirstChild("Candies") or leaderstats:FindFirstChild("Doces") or leaderstats:FindFirstChild("Coins")
+            if candiesStat and candiesStat.Value >= 50 then
+                return true
+            end
+        end
+    end)
+    return false
+end
+
+-- Loop Principal de Coleta (Sem desativar o toggle)
+local triggeredFlingForEvent = false
+
+task.spawn(function()
+    while true do
+        if AutoCandyRunning then
+            local bagFull = CheckBagFullOrEmpty()
+            local candyList = GetClosestCandies()
+
+            if bagFull or #candyList == 0 then
+                -- Se o saco encheu ou acabaram os doces, dispara o Auto Fling uma vez
+                if not triggeredFlingForEvent then
+                    triggeredFlingForEvent = true
+                    TriggerAutoFling()
+                end
+            else
+                -- Reseta o controle do fling assim que reaparecerem doces
+                triggeredFlingForEvent = false
+                local closest = candyList[1]
+                if IsRealCandy(closest.Part) then
+                    TeleportToCandy(closest.Part)
+                end
+            end
+            task.wait(0.05)
+        else
+            triggeredFlingForEvent = false
+            task.wait(0.3)
+        end
+    end
+end)
+
+-- ==========================================
+-- BOTÃO CIRCULAR ARRASTÁVEL (Abrir / Fechar)
+-- ==========================================
+local CoreGui = game:GetService("CoreGui")
+
+local FloatingGui = Instance.new("ScreenGui")
+FloatingGui.Name = "AutoCandyFloatingButton"
+FloatingGui.Parent = CoreGui
+FloatingGui.IgnoreGuiInset = true
+
+local CircleButton = Instance.new("TextButton")
+CircleButton.Name = "ToggleButton"
+CircleButton.Size = UDim2.new(0, 52, 0, 52)
+CircleButton.Position = UDim2.new(0, 25, 0, 220)
+CircleButton.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+CircleButton.Text = ""
+CircleButton.Active = true
+CircleButton.Draggable = true
+CircleButton.Parent = FloatingGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(1, 0)
+UICorner.Parent = CircleButton
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(80, 80, 80)
+UIStroke.Thickness = 2
+UIStroke.Parent = CircleButton
+
+local ButtonImage = Instance.new("ImageLabel")
+ButtonImage.Name = "ButtonImage"
+ButtonImage.Size = UDim2.new(1, 0, 1, 0)
+ButtonImage.Position = UDim2.new(0, 0, 0, 0)
+ButtonImage.BackgroundTransparency = 1
+ButtonImage.Image = "rbxassetid://81015096581028"
+ButtonImage.Parent = CircleButton
+
+local ImageCorner = Instance.new("UICorner")
+ImageCorner.CornerRadius = UDim.new(1, 0)
+ImageCorner.Parent = ButtonImage
+
+CircleButton.MouseButton1Click:Connect(function()
+    Window:Minimize()
+end)
+
+Window:SelectTab(1)
