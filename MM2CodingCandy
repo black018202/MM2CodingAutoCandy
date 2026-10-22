@@ -20,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Janela Principal (Dracosw Hub)
 local Window = Fluent:CreateWindow({
     Title = "Auto Candy",
-    SubTitle = " Dracosw - MM2 Halloween",
+    SubTitle = "Dracosw - MM2 Halloween",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 420),
     Theme = "Darker",
@@ -64,6 +64,66 @@ ToggleAutoFlingAfter:OnChanged(function(Value)
     AutoFlingAfterEnabled = Value
 end)
 
+-- Slider: Velocidade do Tween
+local SliderSpeed = Tabs.Main:AddSlider("SpeedSlider", {
+    Title = "Velocidade do Tween",
+    Description = "Ajuste a velocidade pelo Slider",
+    Default = 21,
+    Min = 5,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(Value)
+        TweenSpeed = Value
+    end
+})
+
+-- Input Manual para Digitar a Velocidade Exata
+local InputSpeed = Tabs.Main:AddInput("SpeedInput", {
+    Title = "Velocidade Manual",
+    Default = "21",
+    Numeric = true,
+    Finished = true,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num and num > 0 then
+            TweenSpeed = num
+            SliderSpeed:SetValue(math.clamp(num, 5, 100))
+        end
+    end
+})
+
+-- Controle de Animação (Parar/Voltar)
+local function ToggleAnimations(enable)
+    pcall(function()
+        local character = LocalPlayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                local animator = humanoid:FindFirstChildOfClass("Animator")
+                if animator then
+                    if not enable then
+                        for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                            track:Stop()
+                        end
+                    end
+                end
+            end
+            
+            local animateScript = character:FindFirstChild("Animate")
+            if animateScript then
+                animateScript.Disabled = not enable
+            end
+        end
+    end)
+end
+
+-- Mantedor de Posição Sem Animações
+RunService.Stepped:Connect(function()
+    if AutoCandyRunning then
+        ToggleAnimations(false)
+    end
+end)
+
 -- Função para achar o Murderer
 local function GetMurdererPlayer()
     for _, player in pairs(Players:GetPlayers()) do
@@ -89,6 +149,23 @@ local function CheckBagFullOrEmpty()
         end
     end)
     return isFull
+end
+
+-- Função para subir suavemente sem exagerar a altura
+local function SafetyRiseUp()
+    local character = LocalPlayer.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local rootPart = character.HumanoidRootPart
+        local currentPos = rootPart.Position
+        local targetCFrame = CFrame.new(currentPos + Vector3.new(0, 4, 0)) -- Subida suave ajustada para apenas 4 studs
+        
+        local tweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
+        tween:Play()
+        tween.Completed:Wait()
+        
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+    end
 end
 
 -- Função de Fling por 10 Segundos com Predição de Movimento
@@ -117,7 +194,6 @@ local function TriggerAutoFling()
                     local velocity = targetRoot.AssemblyLinearVelocity
                     local targetCFrame = targetRoot.CFrame
 
-                    -- Se o Murder estiver andando, posiciona um pouco mais à frente
                     if velocity.Magnitude > 0.1 then
                         targetCFrame = targetCFrame + (velocity.Unit * 4)
                     end
@@ -136,6 +212,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
     local humanoid = character:WaitForChild("Humanoid", 5)
     if humanoid then
         humanoid.Died:Connect(function()
+            ToggleAnimations(true)
             if AutoCandyRunning or AutoFlingAfterEnabled then
                 TriggerAutoFling()
             end
@@ -145,6 +222,7 @@ end)
 
 if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
     LocalPlayer.Character.Humanoid.Died:Connect(function()
+        ToggleAnimations(true)
         if AutoCandyRunning or AutoFlingAfterEnabled then
             TriggerAutoFling()
         end
@@ -155,23 +233,16 @@ ToggleCandy:OnChanged(function(Value)
     AutoCandyRunning = Value
     if Value then
         AntiFlingEnabled = true
+        ToggleAnimations(false)
     else
         AntiFlingEnabled = ToggleFling.Value
+        ToggleAnimations(true)
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.AssemblyLinearVelocity = Vector3.zero
+        end
     end
 end)
-
--- Slider: Velocidade do Tween
-local Slider = Tabs.Main:AddSlider("SpeedSlider", {
-    Title = "Velocidade do Tween",
-    Description = "Recomendado: 20-30",
-    Default = 21,
-    Min = 5,
-    Max = 50,
-    Rounding = 0,
-    Callback = function(Value)
-        TweenSpeed = Value
-    end
-})
 
 -- ==========================================
 -- ABA: VISUAIS (ESP)
@@ -312,7 +383,7 @@ local function IsRealCandy(part)
     return true
 end
 
--- Teleporte Tween - Vai até encostar perfeitamente no doce
+-- Teleporte Tween com VFLY Dedicado e Posição Rebaixada (-2.2 studs)
 local function TeleportToCandy(targetPart)
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
@@ -320,16 +391,28 @@ local function TeleportToCandy(targetPart)
     local rootPart = character.HumanoidRootPart
     if not IsRealCandy(targetPart) then return end
 
+    -- Ativa VFly (Sustentação Física para anular 100% da Gravidade)
+    local vFly = Instance.new("BodyVelocity")
+    vFly.Name = "CandyVFly"
+    vFly.Velocity = Vector3.zero
+    vFly.MaxForce = Vector3.new(0, math.huge, 0)
+    vFly.Parent = rootPart
+
     local distance = (rootPart.Position - targetPart.Position).Magnitude
     local timeToTravel = distance / TweenSpeed
 
-    local centerPosition = CFrame.new(targetPart.Position)
+    local targetPosition = targetPart.Position - Vector3.new(0, 2.2, 0)
+    local targetCFrame = CFrame.new(targetPosition)
+
     local tweenInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = centerPosition})
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
     
     tween:Play()
 
     while AutoCandyRunning and IsRealCandy(targetPart) do
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
+
         local currentDist = (rootPart.Position - targetPart.Position).Magnitude
         if currentDist <= 0.2 then
             break
@@ -338,6 +421,8 @@ local function TeleportToCandy(targetPart)
     end
 
     tween:Cancel()
+    vFly:Destroy()
+    rootPart.AssemblyLinearVelocity = Vector3.zero
 end
 
 local function GetClosestCandies()
@@ -384,6 +469,8 @@ task.spawn(function()
             if bagFull or #candyList == 0 then
                 if not triggeredFlingForEvent then
                     triggeredFlingForEvent = true
+                    SafetyRiseUp() -- Eleva ligeiramente
+                    ToggleAnimations(true)
                     TriggerAutoFling()
                 end
             else
