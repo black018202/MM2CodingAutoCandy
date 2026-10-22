@@ -20,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Janela Principal (Dracosw Hub)
 local Window = Fluent:CreateWindow({
     Title = "Auto Candy",
-    SubTitle = "Dracosw - MM2 Halloween",
+    SubTitle = " Dracosw - MM2 Halloween",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 420),
     Theme = "Darker",
@@ -77,6 +77,20 @@ local function GetMurdererPlayer()
     return nil
 end
 
+local function CheckBagFullOrEmpty()
+    local isFull = false
+    pcall(function()
+        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+        if leaderstats then
+            local candiesStat = leaderstats:FindFirstChild("Candies") or leaderstats:FindFirstChild("Doces") or leaderstats:FindFirstChild("Coins")
+            if candiesStat and candiesStat.Value >= 50 then
+                isFull = true
+            end
+        end
+    end)
+    return isFull
+end
+
 -- Função de Fling por 10 Segundos com Predição de Movimento
 local isFlinging = false
 local function TriggerAutoFling()
@@ -100,15 +114,14 @@ local function TriggerAutoFling()
                     local rootPart = character.HumanoidRootPart
                     local targetRoot = murder.Character.HumanoidRootPart
                     
-                    -- Calcula posição futura se o Murderer estiver se movendo
                     local velocity = targetRoot.AssemblyLinearVelocity
                     local targetCFrame = targetRoot.CFrame
 
+                    -- Se o Murder estiver andando, posiciona um pouco mais à frente
                     if velocity.Magnitude > 0.1 then
-                        targetCFrame = targetCFrame + (velocity * 0.15)
+                        targetCFrame = targetCFrame + (velocity.Unit * 4)
                     end
 
-                    -- Posiciona e aplica rotação/velocidade extrema para o Fling
                     rootPart.CFrame = targetCFrame * CFrame.new(math.random(-1, 1), 0, math.random(-1, 1))
                     rootPart.AssemblyLinearVelocity = Vector3.new(40000, 40000, 40000)
                     rootPart.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
@@ -150,7 +163,7 @@ end)
 -- Slider: Velocidade do Tween
 local Slider = Tabs.Main:AddSlider("SpeedSlider", {
     Title = "Velocidade do Tween",
-    Description = "Recomendado: 20-31",
+    Description = "Recomendado: 20-30",
     Default = 21,
     Min = 5,
     Max = 50,
@@ -316,7 +329,6 @@ local function TeleportToCandy(targetPart)
     
     tween:Play()
 
-    -- Espera encostar bem perto (0.2 studs) ou até o doce sumir do mapa
     while AutoCandyRunning and IsRealCandy(targetPart) do
         local currentDist = (rootPart.Position - targetPart.Position).Magnitude
         if currentDist <= 0.2 then
@@ -360,20 +372,7 @@ local function GetClosestCandies()
     return candyList
 end
 
-local function CheckBagFullOrEmpty()
-    pcall(function()
-        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-        if leaderstats then
-            local candiesStat = leaderstats:FindFirstChild("Candies") or leaderstats:FindFirstChild("Doces") or leaderstats:FindFirstChild("Coins")
-            if candiesStat and candiesStat.Value >= 50 then
-                return true
-            end
-        end
-    end)
-    return false
-end
-
--- Loop Principal de Coleta (Sem desativar o toggle)
+-- Loop Principal de Coleta
 local triggeredFlingForEvent = false
 
 task.spawn(function()
@@ -383,13 +382,11 @@ task.spawn(function()
             local candyList = GetClosestCandies()
 
             if bagFull or #candyList == 0 then
-                -- Se o saco encheu ou acabaram os doces, dispara o Auto Fling uma vez
                 if not triggeredFlingForEvent then
                     triggeredFlingForEvent = true
                     TriggerAutoFling()
                 end
             else
-                -- Reseta o controle do fling assim que reaparecerem doces
                 triggeredFlingForEvent = false
                 local closest = candyList[1]
                 if IsRealCandy(closest.Part) then
